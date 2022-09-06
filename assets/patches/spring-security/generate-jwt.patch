@@ -1,0 +1,261 @@
+diff --git a/pom.xml b/pom.xml
+index 891e7ac..b6b010b 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -15,6 +15,7 @@
+ 	<description>Demo project for Spring Security</description>
+ 	<properties>
+ 		<java.version>1.8</java.version>
++		<jjwt.version>0.11.5</jjwt.version>
+ 	</properties>
+ 	<dependencies>
+ 		<dependency>
+@@ -51,6 +52,21 @@
+ 			<groupId>org.springframework.boot</groupId>
+ 			<artifactId>spring-boot-starter-security</artifactId>
+ 		</dependency>
++		<dependency>
++			<groupId>io.jsonwebtoken</groupId>
++			<artifactId>jjwt-api</artifactId>
++			<version>${jjwt.version}</version>
++		</dependency>
++		<dependency>
++			<groupId>io.jsonwebtoken</groupId>
++			<artifactId>jjwt-impl</artifactId>
++			<version>${jjwt.version}</version>
++		</dependency>
++		<dependency>
++			<groupId>io.jsonwebtoken</groupId>
++			<artifactId>jjwt-jackson</artifactId>
++			<version>${jjwt.version}</version>
++		</dependency>
+ 	</dependencies>
+ 
+ 	<build>
+diff --git a/src/main/java/com/facadecode/spring/security/config/JWTConfig.java b/src/main/java/com/facadecode/spring/security/config/JWTConfig.java
+new file mode 100644
+index 0000000..2497722
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/config/JWTConfig.java
+@@ -0,0 +1,45 @@
++package com.facadecode.spring.security.config;
++
++import io.jsonwebtoken.SignatureAlgorithm;
++import lombok.Setter;
++import org.springframework.boot.context.properties.ConfigurationProperties;
++import org.springframework.context.annotation.Configuration;
++
++import javax.crypto.SecretKey;
++import javax.crypto.spec.SecretKeySpec;
++import java.util.Base64;
++import java.util.Calendar;
++import java.util.Date;
++
++@Configuration
++@ConfigurationProperties(prefix = "jwt.token")
++@Setter
++public class JWTConfig {
++    private String base64EncodedSecretKey;
++
++    private Integer expiryInSeconds;
++
++    private String signingAlgorithm;
++
++    public SignatureAlgorithm getSignatureAlgorithm() {
++        return SignatureAlgorithm.valueOf(signingAlgorithm);
++    }
++
++    public SecretKey getSecretKey() {
++        byte[] base64DecodedKeyBytes = Base64.getDecoder().decode(base64EncodedSecretKey);
++        SecretKey secretKey = new SecretKeySpec(base64DecodedKeyBytes, 0,
++                base64DecodedKeyBytes.length, this.getSignatureAlgorithm().getJcaName());
++        return secretKey;
++    }
++
++    public Date getIssueTime() {
++        return new Date(System.currentTimeMillis());
++    }
++
++    public Date getExpiryTime(Date issueDate) {
++        Calendar calendar = Calendar.getInstance();
++        calendar.setTime(issueDate);
++        calendar.add(Calendar.SECOND, expiryInSeconds);
++        return calendar.getTime();
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index d69a680..2ad1256 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -14,7 +14,6 @@ public class SecurityConstants {
+         public static final String LIST_STUDENTS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_STUDENTS.name())";
+         public static final String LIST_INSTRUCTORS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_INSTRUCTORS.name())";
+         public static final String VIEW_PROFILE = "hasPermission(returnObject, T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
+-        public static final String UPDATE_TOKEN = "#username == authentication.name";
+         public static final String DELETE_TOKEN = "#username == authentication.name";
+         public static final String CREATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).CREATE_COURSE.name())";
+         public static final String UPDATE_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
+diff --git a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+index 6b01164..88e7ed6 100644
+--- a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
++++ b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+@@ -19,8 +19,8 @@ public class AuthenticationController {
+     @PostMapping(path = "token", consumes = {APPLICATION_FORM_URLENCODED_VALUE})
+     public ResponseEntity<Map<String,String>> generateToken(@RequestParam("username") String username,
+                              @RequestParam("password") String password) {
+-        String token = authenticationService.generateToken(username, password);
+-        Map<String, String> tokenResponse = Collections.singletonMap("token", token);
++        String accessToken = authenticationService.generateToken(username, password);
++        Map<String, String> tokenResponse = Collections.singletonMap("accessToken", accessToken);
+         return ResponseEntity.ok(tokenResponse);
+     }
+ 
+diff --git a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+index ec6e0f6..0e7ebfc 100644
+--- a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
++++ b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+@@ -1,15 +1,18 @@
+ package com.facadecode.spring.security.service;
+ 
++import com.facadecode.spring.security.config.JWTConfig;
+ import com.facadecode.spring.security.security.AuthenticationFacade;
++import io.jsonwebtoken.Jwts;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.security.authentication.AuthenticationManager;
+ import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+ import org.springframework.security.core.Authentication;
++import org.springframework.security.core.GrantedAuthority;
+ import org.springframework.stereotype.Service;
+ 
+-import java.util.Calendar;
+-import java.util.Date;
++import java.util.Collections;
+ import java.util.UUID;
++import java.util.stream.Collectors;
+ 
+ @Service
+ public class AuthenticationService {
+@@ -22,26 +25,34 @@ public class AuthenticationService {
+     @Autowired
+     private UserService userService;
+ 
++    @Autowired
++    private JWTConfig jwtConfig;
++
+     public String generateToken(String username, String password) {
+         Authentication authentication = UsernamePasswordAuthenticationToken.unauthenticated(username, password);
+         authentication = authenticationManager.authenticate(authentication);
+ 
+-        String token = null;
++        String accessToken = null;
+         if (authentication.isAuthenticated()) {
+             authenticationFacade.setAuthentication(authentication);
+ 
+-            token = UUID.randomUUID().toString();
+-            userService.updateToken(authentication.getName(), token, this.getTokenExpiryTime());
++            accessToken = Jwts.builder()
++                    .setSubject(authentication.getName())
++                    .setIssuedAt(jwtConfig.getIssueTime())
++                    .setExpiration(jwtConfig.getExpiryTime(jwtConfig.getIssueTime()))
++                    .setId(UUID.randomUUID().toString())
++                    .addClaims(
++                            Collections.singletonMap("authorities", authentication.getAuthorities()
++                                    .stream()
++                                    .map(GrantedAuthority::getAuthority)
++                                    .collect(Collectors.toList())
++                            )
++                    )
++                    .signWith(jwtConfig.getSecretKey(), jwtConfig.getSignatureAlgorithm())
++                    .compact();
+         }
+ 
+-        return token;
+-    }
+-
+-    public Date getTokenExpiryTime() {
+-        Calendar calendar = Calendar.getInstance();
+-        calendar.setTime(new Date());
+-        calendar.add(Calendar.MINUTE, 30);
+-        return calendar.getTime();
++        return accessToken;
+     }
+ 
+     public void invalidateToken() {
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index 1f7b143..df2cf96 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -10,7 +10,6 @@ import org.springframework.security.access.prepost.PostAuthorize;
+ import org.springframework.security.access.prepost.PreAuthorize;
+ import org.springframework.stereotype.Service;
+ 
+-import java.util.Date;
+ import java.util.List;
+ import java.util.stream.Collectors;
+ 
+@@ -58,14 +57,6 @@ public class UserService {
+                 .orElseThrow(() -> new RuntimeException(String.format("User with username %s not found", username)));
+     }
+ 
+-    @PreAuthorize(Authority.UPDATE_TOKEN)
+-    public void updateToken(String username, String token, Date tokenExpiryTime) {
+-        AppUser appUser = this.get(username);
+-        appUser.setToken(token);
+-        appUser.setTokenExpiryTime(tokenExpiryTime);
+-        appUserRepository.save(appUser);
+-    }
+-
+     @PreAuthorize(Authority.DELETE_TOKEN)
+     public void deleteToken(String username) {
+         AppUser appUser = this.get(username);
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index 19d386b..c8cbea7 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -10,4 +10,9 @@ spring.jpa.hibernate.ddl-auto=update
+ 
+ # Logging properties
+ logging.level.com.facadecode.spring.security=DEBUG
+-logging.level.org.springframework.security=DEBUG
+\ No newline at end of file
++logging.level.org.springframework.security=DEBUG
++
++# Jwt properties
++jwt.token.base64-encoded-secret-key=/EbiawupzOqD8MlXgzlRetQfLL5vbD65jE6Q2MJF/Gg=
++jwt.token.expiry-in-seconds=600
++jwt.token.signing-algorithm=HS256
+\ No newline at end of file
+diff --git a/src/test/java/com/facadecode/spring/security/SecretKeyGeneratorTest.java b/src/test/java/com/facadecode/spring/security/SecretKeyGeneratorTest.java
+new file mode 100644
+index 0000000..2cfecb0
+--- /dev/null
++++ b/src/test/java/com/facadecode/spring/security/SecretKeyGeneratorTest.java
+@@ -0,0 +1,28 @@
++package com.facadecode.spring.security;
++
++import io.jsonwebtoken.SignatureAlgorithm;
++import io.jsonwebtoken.security.Keys;
++import org.junit.jupiter.api.Test;
++
++import javax.crypto.SecretKey;
++import javax.crypto.spec.SecretKeySpec;
++import java.util.Base64;
++
++public class SecretKeyGeneratorTest {
++    private static final SignatureAlgorithm ALGORITHM = SignatureAlgorithm.HS256;
++
++    @Test
++    public void generateBase64EncodedSecretKeyString() {
++        // Generate and Base64 encode to string to store it in disk
++        SecretKey originalKey = Keys.secretKeyFor(ALGORITHM);
++        String base64EncodedKeyString = Base64.getEncoder().encodeToString(originalKey.getEncoded());
++        System.out.println("Base64 encoded secret key generated below, store it in a secure place");
++        System.out.println(base64EncodedKeyString);
++
++        // Base64 decode from string and regenerate SecretKey
++        byte[] base64DecodedKeyBytes = Base64.getDecoder().decode(base64EncodedKeyString);
++        SecretKey regeneratedKey = new SecretKeySpec(base64DecodedKeyBytes, 0, base64DecodedKeyBytes.length, ALGORITHM.getJcaName());
++
++        assert originalKey.equals(regeneratedKey);
++    }
++}

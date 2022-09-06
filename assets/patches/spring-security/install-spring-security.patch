@@ -1,0 +1,15 @@
+diff --git a/pom.xml b/pom.xml
+index 2fe9962..891e7ac 100644
+--- a/pom.xml
++++ b/pom.xml
+@@ -47,6 +47,10 @@
+ 			<artifactId>spring-boot-starter-test</artifactId>
+ 			<scope>test</scope>
+ 		</dependency>
++		<dependency>
++			<groupId>org.springframework.boot</groupId>
++			<artifactId>spring-boot-starter-security</artifactId>
++		</dependency>
+ 	</dependencies>
+ 
+ 	<build>

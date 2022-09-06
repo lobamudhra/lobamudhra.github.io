@@ -1,0 +1,77 @@
+diff --git a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+index 9301e66..5dd22d5 100644
+--- a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
++++ b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+@@ -4,6 +4,9 @@ import com.facadecode.spring.security.domain.AppUser;
+ import org.springframework.data.jpa.repository.JpaRepository;
+ import org.springframework.stereotype.Repository;
+ 
++import java.util.Optional;
++
+ @Repository
+ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
++    Optional<AppUser> findByUsername(String username);
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java b/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java
+new file mode 100644
+index 0000000..65c0fb6
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java
+@@ -0,0 +1,12 @@
++package com.facadecode.spring.security.security;
++
++import org.springframework.security.core.Authentication;
++import org.springframework.security.core.context.SecurityContextHolder;
++import org.springframework.stereotype.Component;
++
++@Component
++public class AuthenticationFacade {
++    public Authentication getAuthentication() {
++        return SecurityContextHolder.getContext().getAuthentication();
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/service/CourseService.java b/src/main/java/com/facadecode/spring/security/service/CourseService.java
+index 1a9cb66..9c6101a 100644
+--- a/src/main/java/com/facadecode/spring/security/service/CourseService.java
++++ b/src/main/java/com/facadecode/spring/security/service/CourseService.java
+@@ -1,7 +1,9 @@
+ package com.facadecode.spring.security.service;
+ 
++import com.facadecode.spring.security.domain.AppUser;
+ import com.facadecode.spring.security.domain.Course;
+ import com.facadecode.spring.security.repo.CourseRepository;
++import com.facadecode.spring.security.security.AuthenticationFacade;
+ import org.springframework.beans.BeanUtils;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.stereotype.Service;
+@@ -13,7 +15,16 @@ public class CourseService {
+     @Autowired
+     private CourseRepository courseRepo;
+ 
++    @Autowired
++    private UserService userService;
++
++    @Autowired
++    private AuthenticationFacade authenticationFacade;
++
+     public Course create(Course newCourse) {
++        String username = authenticationFacade.getAuthentication().getName();
++        AppUser currentUser = userService.get(username);
++        newCourse.setCreatedBy(currentUser);
+         return courseRepo.save(newCourse);
+     }
+ 
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index c2fa470..369ee6d 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -44,4 +44,9 @@ public class UserService {
+         return appUserRepository.findById(userId)
+                 .orElse(null);
+     }
++
++    public AppUser get(String username) {
++        return appUserRepository.findByUsername(username)
++                .orElse(null);
++    }
+ }

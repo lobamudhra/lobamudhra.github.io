@@ -1,0 +1,25 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+new file mode 100644
+index 0000000..94abce5
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -0,0 +1,19 @@
++package com.facadecode.spring.security.config;
++
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.security.config.annotation.web.builders.HttpSecurity;
++import org.springframework.security.web.SecurityFilterChain;
++
++@Configuration
++public class ApiSecurityConfig {
++    @Bean
++    public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
++        http
++                .authorizeRequests(auth -> auth
++                        .anyRequest().authenticated()
++                )
++                .httpBasic();
++        return http.build();
++    }
++}

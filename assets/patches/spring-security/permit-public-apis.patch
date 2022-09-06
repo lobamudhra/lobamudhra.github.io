@@ -1,0 +1,38 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index 94abce5..78439b5 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -5,12 +5,16 @@ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.web.SecurityFilterChain;
+ 
++import static com.facadecode.spring.security.constant.SecurityConstants.PUBLIC_API_LIST;
++import static org.springframework.http.HttpMethod.GET;
++
+ @Configuration
+ public class ApiSecurityConfig {
+     @Bean
+     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+         http
+                 .authorizeRequests(auth -> auth
++                        .antMatchers(GET, PUBLIC_API_LIST).permitAll()
+                         .anyRequest().authenticated()
+                 )
+                 .httpBasic();
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+new file mode 100644
+index 0000000..7214b26
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -0,0 +1,11 @@
++package com.facadecode.spring.security.constant;
++
++public class SecurityConstants {
++    public static final String API_LIST_COURSES = "/api/v1/courses";
++    public static final String API_GET_COURSE = "/api/v1/courses/*";
++
++    public static final String[] PUBLIC_API_LIST = new String[] {
++            API_LIST_COURSES,
++            API_GET_COURSE
++    };
++}

@@ -1,0 +1,136 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index ff19a4e..8d07b1e 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -1,10 +1,13 @@
+ package com.facadecode.spring.security.config;
+ 
++import com.facadecode.spring.security.filters.TokenVerificationFilter;
++import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.config.http.SessionCreationPolicy;
+ import org.springframework.security.web.SecurityFilterChain;
++import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+ 
+ import static com.facadecode.spring.security.constant.SecurityConstants.API_AUTH_TOKEN;
+ import static com.facadecode.spring.security.constant.SecurityConstants.PUBLIC_API_LIST;
+@@ -13,10 +16,14 @@ import static org.springframework.http.HttpMethod.POST;
+ 
+ @Configuration
+ public class ApiSecurityConfig {
++    @Autowired
++    private TokenVerificationFilter tokenVerificationFilter;
++
+     @Bean
+     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+         http
+                 .csrf().disable()
++                .addFilterBefore(tokenVerificationFilter, UsernamePasswordAuthenticationFilter.class)
+                 .sessionManagement(
+                         httpSecuritySessionManagementConfigurer ->
+                                 httpSecuritySessionManagementConfigurer.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
+diff --git a/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java b/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java
+new file mode 100644
+index 0000000..14bf48e
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java
+@@ -0,0 +1,45 @@
++package com.facadecode.spring.security.filters;
++
++import com.facadecode.spring.security.security.AuthenticationFacade;
++import com.facadecode.spring.security.service.DbUserDetailsService;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.http.HttpHeaders;
++import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
++import org.springframework.security.core.Authentication;
++import org.springframework.security.core.userdetails.UserDetails;
++import org.springframework.stereotype.Component;
++import org.springframework.web.filter.OncePerRequestFilter;
++
++import javax.servlet.FilterChain;
++import javax.servlet.ServletException;
++import javax.servlet.http.HttpServletRequest;
++import javax.servlet.http.HttpServletResponse;
++import java.io.IOException;
++
++@Component
++public class TokenVerificationFilter extends OncePerRequestFilter {
++    @Autowired
++    private DbUserDetailsService userDetailsService;
++
++    @Autowired
++    private AuthenticationFacade authenticationFacade;
++
++    @Override
++    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
++        String authorizationHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
++
++        if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
++            String token = authorizationHeader.replace("Bearer ", "");
++            UserDetails userDetails = userDetailsService.loadUserByToken(token);
++
++            if (userDetails != null) {
++                Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
++                        userDetails.getUsername(), null, userDetails.getAuthorities()
++                );
++                authenticationFacade.setAuthentication(authentication);
++            }
++        }
++
++        filterChain.doFilter(request, response);
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+index 5dd22d5..a6903fc 100644
+--- a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
++++ b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+@@ -4,9 +4,12 @@ import com.facadecode.spring.security.domain.AppUser;
+ import org.springframework.data.jpa.repository.JpaRepository;
+ import org.springframework.stereotype.Repository;
+ 
++import java.util.Date;
+ import java.util.Optional;
+ 
+ @Repository
+ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
+     Optional<AppUser> findByUsername(String username);
++
++    Optional<AppUser> findByTokenAndTokenExpiryTimeGreaterThan(String token, Date currentDate);
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+index f2f0eea..e2e4655 100644
+--- a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
++++ b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+@@ -4,12 +4,14 @@ import com.facadecode.spring.security.domain.AppRole;
+ import com.facadecode.spring.security.domain.AppUser;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.security.authentication.BadCredentialsException;
+ import org.springframework.security.core.userdetails.User;
+ import org.springframework.security.core.userdetails.UserDetails;
+ import org.springframework.security.core.userdetails.UserDetailsService;
+ import org.springframework.security.core.userdetails.UsernameNotFoundException;
+ import org.springframework.stereotype.Service;
+ 
++import java.util.Date;
+ import java.util.Set;
+ import java.util.stream.Collectors;
+ 
+@@ -37,4 +39,15 @@ public class DbUserDetailsService implements UserDetailsService {
+                 .collect(Collectors.toSet())
+                 .toArray(new String[0]);
+     }
++
++    public UserDetails loadUserByToken(String token) throws UsernameNotFoundException {
++        AppUser appUser = appUserRepository.findByTokenAndTokenExpiryTimeGreaterThan(token, new Date())
++                .orElseThrow(() -> new BadCredentialsException("Provided token is either expired or not found"));
++
++        return User.builder()
++                .username(appUser.getUsername())
++                .password(appUser.getPassword())
++                .authorities(this.getPermissions(appUser.getRoles()))
++                .build();
++    }
+ }

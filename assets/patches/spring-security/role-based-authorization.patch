@@ -1,0 +1,83 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index 78439b5..885e445 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -5,8 +5,11 @@ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.web.SecurityFilterChain;
+ 
+-import static com.facadecode.spring.security.constant.SecurityConstants.PUBLIC_API_LIST;
++import static com.facadecode.spring.security.constant.SecurityConstants.*;
++import static com.facadecode.spring.security.enums.RoleEnum.ADMIN;
++import static com.facadecode.spring.security.enums.RoleEnum.INSTRUCTOR;
+ import static org.springframework.http.HttpMethod.GET;
++import static org.springframework.http.HttpMethod.POST;
+ 
+ @Configuration
+ public class ApiSecurityConfig {
+@@ -15,6 +18,8 @@ public class ApiSecurityConfig {
+         http
+                 .authorizeRequests(auth -> auth
+                         .antMatchers(GET, PUBLIC_API_LIST).permitAll()
++                        .antMatchers(API_LIST_STUDENTS, API_LIST_INSTRUCTORS).hasRole(ADMIN.name())
++                        .antMatchers(POST, API_CREATE_COURSES).hasRole(INSTRUCTOR.name())
+                         .anyRequest().authenticated()
+                 )
+                 .httpBasic();
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index 7214b26..f87e725 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -1,9 +1,15 @@
+ package com.facadecode.spring.security.constant;
+ 
+ public class SecurityConstants {
++    /* Course API URLs */
++    public static final String API_CREATE_COURSES = "/api/v1/courses";
+     public static final String API_LIST_COURSES = "/api/v1/courses";
+     public static final String API_GET_COURSE = "/api/v1/courses/*";
+ 
++    /* User API URLs */
++    public static final String API_LIST_STUDENTS = "/api/v1/users/students";
++    public static final String API_LIST_INSTRUCTORS = "/api/v1/users/instructors";
++
+     public static final String[] PUBLIC_API_LIST = new String[] {
+             API_LIST_COURSES,
+             API_GET_COURSE
+diff --git a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+index c6df992..78bfd76 100644
+--- a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
++++ b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+@@ -1,5 +1,6 @@
+ package com.facadecode.spring.security.service;
+ 
++import com.facadecode.spring.security.domain.AppRole;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.security.core.userdetails.User;
+@@ -8,6 +9,7 @@ import org.springframework.stereotype.Service;
+ 
+ import java.util.Collections;
+ import java.util.List;
++import java.util.Set;
+ import java.util.stream.Collectors;
+ 
+ @Service
+@@ -22,8 +24,17 @@ public class DbUserDetailsService {
+                         .username(appUser.getUsername())
+                         .password(appUser.getPassword())
+                         .authorities(Collections.EMPTY_SET)
++                        .roles(this.getRoles(appUser.getRoles()))
+                         .build()
+                 )
+                 .collect(Collectors.toList());
+     }
++
++    private String[] getRoles(Set<AppRole> roles) {
++        return roles.stream()
++                .map(role -> role.getName().name())
++                .collect(Collectors.toSet())
++                .toArray(new String[0]);
++    }
++
+ }

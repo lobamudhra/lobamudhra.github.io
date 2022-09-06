@@ -1,0 +1,122 @@
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index 0623cd4..c875b3e 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -14,6 +14,7 @@ public class SecurityConstants {
+         public static final String LIST_STUDENTS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_STUDENTS.name())";
+         public static final String LIST_INSTRUCTORS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_INSTRUCTORS.name())";
+         public static final String VIEW_PROFILE = "hasPermission(returnObject, T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
++        public static final String UPDATE_TOKEN = "#username == authentication.name";
+         public static final String CREATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).CREATE_COURSE.name())";
+         public static final String UPDATE_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
+         public static final String PLAY_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).PLAY_COURSE.name())";
+diff --git a/src/main/java/com/facadecode/spring/security/domain/AppUser.java b/src/main/java/com/facadecode/spring/security/domain/AppUser.java
+index 4dbabb8..eb441ec 100644
+--- a/src/main/java/com/facadecode/spring/security/domain/AppUser.java
++++ b/src/main/java/com/facadecode/spring/security/domain/AppUser.java
+@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
+ import lombok.*;
+ 
+ import javax.persistence.*;
++import java.util.Date;
+ import java.util.Set;
+ 
+ import static javax.persistence.CascadeType.ALL;
+@@ -45,4 +46,8 @@ public class AppUser {
+     @OneToMany(mappedBy = "createdBy", cascade = ALL)
+     @JsonIgnore
+     private Set<Course> createdCourses;
++
++    private String token;
++
++    private Date tokenExpiryTime;
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java b/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java
+index 65c0fb6..0aa0278 100644
+--- a/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java
++++ b/src/main/java/com/facadecode/spring/security/security/AuthenticationFacade.java
+@@ -9,4 +9,8 @@ public class AuthenticationFacade {
+     public Authentication getAuthentication() {
+         return SecurityContextHolder.getContext().getAuthentication();
+     }
++
++    public void setAuthentication(Authentication authentication) {
++        SecurityContextHolder.getContext().setAuthentication(authentication);
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+index 231b351..b158aec 100644
+--- a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
++++ b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+@@ -1,11 +1,14 @@
+ package com.facadecode.spring.security.service;
+ 
++import com.facadecode.spring.security.security.AuthenticationFacade;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.security.authentication.AuthenticationManager;
+ import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+ import org.springframework.security.core.Authentication;
+ import org.springframework.stereotype.Service;
+ 
++import java.util.Calendar;
++import java.util.Date;
+ import java.util.UUID;
+ 
+ @Service
+@@ -13,15 +16,31 @@ public class AuthenticationService {
+     @Autowired
+     private AuthenticationManager authenticationManager;
+ 
++    @Autowired
++    private AuthenticationFacade authenticationFacade;
++
++    @Autowired
++    private UserService userService;
++
+     public String generateToken(String username, String password) {
+         Authentication authentication = UsernamePasswordAuthenticationToken.unauthenticated(username, password);
+         authentication = authenticationManager.authenticate(authentication);
+ 
+         String token = null;
+         if (authentication.isAuthenticated()) {
++            authenticationFacade.setAuthentication(authentication);
++
+             token = UUID.randomUUID().toString();
++            userService.updateToken(authentication.getName(), token, this.getTokenExpiryTime());
+         }
+ 
+         return token;
+     }
++
++    public Date getTokenExpiryTime() {
++        Calendar calendar = Calendar.getInstance();
++        calendar.setTime(new Date());
++        calendar.add(Calendar.MINUTE, 30);
++        return calendar.getTime();
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index 87eb950..0339a86 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -10,6 +10,7 @@ import org.springframework.security.access.prepost.PostAuthorize;
+ import org.springframework.security.access.prepost.PreAuthorize;
+ import org.springframework.stereotype.Service;
+ 
++import java.util.Date;
+ import java.util.List;
+ import java.util.stream.Collectors;
+ 
+@@ -56,4 +57,12 @@ public class UserService {
+         return appUserRepository.findByUsername(username)
+                 .orElseThrow(() -> new RuntimeException(String.format("User with username %s not found", username)));
+     }
++
++    @PreAuthorize(Authority.UPDATE_TOKEN)
++    public void updateToken(String username, String token, Date tokenExpiryTime) {
++        AppUser appUser = this.get(username);
++        appUser.setToken(token);
++        appUser.setTokenExpiryTime(tokenExpiryTime);
++        appUserRepository.save(appUser);
++    }
+ }

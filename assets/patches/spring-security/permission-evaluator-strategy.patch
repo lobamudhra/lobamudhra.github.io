@@ -1,0 +1,183 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java
+index 9e61f31..ecc57e3 100644
+--- a/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java
+@@ -1,6 +1,6 @@
+ package com.facadecode.spring.security.config;
+ 
+-import com.facadecode.spring.security.security.CoursePermissionEvaluator;
++import com.facadecode.spring.security.security.PermissionEvaluatorStrategyContext;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.context.annotation.Configuration;
+ import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler;
+@@ -12,13 +12,13 @@ import org.springframework.security.config.annotation.method.configuration.Globa
+ @EnableGlobalMethodSecurity(prePostEnabled = true)
+ public class SecurityConfig extends GlobalMethodSecurityConfiguration {
+     @Autowired
+-    private CoursePermissionEvaluator coursePermissionEvaluator;
++    private PermissionEvaluatorStrategyContext permissionEvaluatorStrategyContext;
+ 
+     @Override
+     protected MethodSecurityExpressionHandler createExpressionHandler() {
+         DefaultMethodSecurityExpressionHandler defaultMethodSecurityExpressionHandler
+                 = new DefaultMethodSecurityExpressionHandler();
+-        defaultMethodSecurityExpressionHandler.setPermissionEvaluator(coursePermissionEvaluator);
++        defaultMethodSecurityExpressionHandler.setPermissionEvaluator(permissionEvaluatorStrategyContext);
+         return defaultMethodSecurityExpressionHandler;
+     }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java b/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java
+index c2dedc6..0f2e511 100644
+--- a/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java
++++ b/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java
+@@ -4,7 +4,6 @@ import com.facadecode.spring.security.domain.AppUser;
+ import com.facadecode.spring.security.enums.PermissionEnum;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import org.springframework.beans.factory.annotation.Autowired;
+-import org.springframework.security.access.PermissionEvaluator;
+ import org.springframework.security.core.Authentication;
+ import org.springframework.stereotype.Component;
+ 
+@@ -14,7 +13,7 @@ import java.util.Optional;
+ import static com.facadecode.spring.security.enums.RoleEnum.INSTRUCTOR;
+ 
+ @Component
+-public class AppUserPermissionEvaluator implements PermissionEvaluator {
++public class AppUserPermissionEvaluator implements PermissionEvaluatorStrategy<AppUser> {
+     @Autowired
+     private AppUserRepository appUserRepository;
+ 
+@@ -59,4 +58,9 @@ public class AppUserPermissionEvaluator implements PermissionEvaluator {
+     public boolean isSame(Authentication authentication, AppUser appuser) {
+         return authentication.getName().equalsIgnoreCase(appuser.getUsername());
+     }
++
++    @Override
++    public Class<AppUser> getTargetType() {
++        return AppUser.class;
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java b/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java
+index 733f976..793421a 100644
+--- a/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java
++++ b/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java
+@@ -6,7 +6,6 @@ import com.facadecode.spring.security.enums.PermissionEnum;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import com.facadecode.spring.security.repo.CourseRepository;
+ import org.springframework.beans.factory.annotation.Autowired;
+-import org.springframework.security.access.PermissionEvaluator;
+ import org.springframework.security.core.Authentication;
+ import org.springframework.stereotype.Component;
+ 
+@@ -14,7 +13,7 @@ import java.io.Serializable;
+ import java.util.Optional;
+ 
+ @Component
+-public class CoursePermissionEvaluator implements PermissionEvaluator {
++public class CoursePermissionEvaluator implements PermissionEvaluatorStrategy<Course> {
+     @Autowired
+     private CourseRepository courseRepository;
+ 
+@@ -52,12 +51,12 @@ public class CoursePermissionEvaluator implements PermissionEvaluator {
+         return false;
+     }
+ 
+-    // Check if the course is created by the authenticated user
++    // Check if the requested course is created by the authenticated user.
+     private boolean isCreatedBy(Authentication authentication, Course course) {
+         return course.getCreatedBy().getUsername().equalsIgnoreCase(authentication.getName());
+     }
+ 
+-    // Check if the course is enrolled by the authenticated user
++    // Check if the requested course is enrolled by the authenticated user.
+     private boolean isEnrolledStudent(Authentication authentication, Long courseId) {
+         Optional<AppUser> student = appUserRepository.findByUsername(authentication.getName());
+         if (student.isPresent()) {
+@@ -68,4 +67,9 @@ public class CoursePermissionEvaluator implements PermissionEvaluator {
+         }
+         return false;
+     }
++
++    @Override
++    public Class<Course> getTargetType() {
++        return Course.class;
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategy.java b/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategy.java
+new file mode 100644
+index 0000000..f41fa92
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategy.java
+@@ -0,0 +1,7 @@
++package com.facadecode.spring.security.security;
++
++import org.springframework.security.access.PermissionEvaluator;
++
++public interface PermissionEvaluatorStrategy<T> extends PermissionEvaluator {
++    <T> Class<T> getTargetType();
++}
+diff --git a/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategyContext.java b/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategyContext.java
+new file mode 100644
+index 0000000..f55a34a
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/security/PermissionEvaluatorStrategyContext.java
+@@ -0,0 +1,59 @@
++package com.facadecode.spring.security.security;
++
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.security.access.PermissionEvaluator;
++import org.springframework.security.core.Authentication;
++import org.springframework.stereotype.Component;
++
++import java.io.Serializable;
++import java.util.List;
++
++@Component
++public class PermissionEvaluatorStrategyContext implements PermissionEvaluator {
++    @Autowired
++    private List<PermissionEvaluatorStrategy> strategies;
++
++    public PermissionEvaluator getPermissionEvaluator(String name) {
++        return strategies.stream()
++                .filter(strategy ->
++                        strategy.getTargetType()
++                                .getSimpleName()
++                                .equalsIgnoreCase(name)
++                )
++                .findFirst()
++                .orElseThrow(() -> new RuntimeException(String.format("No permission evaluator found for the class %s", name)));
++    }
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Object targetDomainObject, Object permission) {
++        if (targetDomainObject != null) {
++            String targetType = targetDomainObject.getClass().getSimpleName();
++            if (hasAuthority(authentication, permission)) {
++                return getPermissionEvaluator(targetType).hasPermission(authentication, targetDomainObject, permission);
++            }
++        }
++        return false;
++    }
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Serializable targetId, String targetType, Object permission) {
++        if (targetId != null) {
++            if (hasAuthority(authentication, permission)) {
++                return getPermissionEvaluator(targetType).hasPermission(authentication, targetId, targetType, permission);
++            }
++        }
++        return false;
++    }
++
++    private boolean hasAuthority(Authentication authentication, Object permission) {
++        if (permission != null) {
++            String strPermission = (String) permission;
++            return authentication.getAuthorities()
++                    .stream()
++                    .anyMatch(grantedAuthority ->
++                            grantedAuthority.getAuthority().equalsIgnoreCase(strPermission)
++                    );
++        }
++        return false;
++    }
++}

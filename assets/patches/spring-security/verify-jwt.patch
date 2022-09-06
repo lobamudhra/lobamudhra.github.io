@@ -1,0 +1,206 @@
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index 2ad1256..0623cd4 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -14,7 +14,6 @@ public class SecurityConstants {
+         public static final String LIST_STUDENTS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_STUDENTS.name())";
+         public static final String LIST_INSTRUCTORS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_INSTRUCTORS.name())";
+         public static final String VIEW_PROFILE = "hasPermission(returnObject, T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
+-        public static final String DELETE_TOKEN = "#username == authentication.name";
+         public static final String CREATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).CREATE_COURSE.name())";
+         public static final String UPDATE_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
+         public static final String PLAY_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).PLAY_COURSE.name())";
+diff --git a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+index 88e7ed6..2f1d770 100644
+--- a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
++++ b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+@@ -23,10 +23,4 @@ public class AuthenticationController {
+         Map<String, String> tokenResponse = Collections.singletonMap("accessToken", accessToken);
+         return ResponseEntity.ok(tokenResponse);
+     }
+-
+-    @DeleteMapping("token")
+-    public ResponseEntity invalidateToken() {
+-        authenticationService.invalidateToken();
+-        return ResponseEntity.noContent().build();
+-    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/domain/AppUser.java b/src/main/java/com/facadecode/spring/security/domain/AppUser.java
+index eb441ec..4dbabb8 100644
+--- a/src/main/java/com/facadecode/spring/security/domain/AppUser.java
++++ b/src/main/java/com/facadecode/spring/security/domain/AppUser.java
+@@ -4,7 +4,6 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
+ import lombok.*;
+ 
+ import javax.persistence.*;
+-import java.util.Date;
+ import java.util.Set;
+ 
+ import static javax.persistence.CascadeType.ALL;
+@@ -46,8 +45,4 @@ public class AppUser {
+     @OneToMany(mappedBy = "createdBy", cascade = ALL)
+     @JsonIgnore
+     private Set<Course> createdCourses;
+-
+-    private String token;
+-
+-    private Date tokenExpiryTime;
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java b/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java
+index 14bf48e..7053948 100644
+--- a/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java
++++ b/src/main/java/com/facadecode/spring/security/filters/TokenVerificationFilter.java
+@@ -1,12 +1,15 @@
+ package com.facadecode.spring.security.filters;
+ 
++import com.facadecode.spring.security.config.JWTConfig;
+ import com.facadecode.spring.security.security.AuthenticationFacade;
+-import com.facadecode.spring.security.service.DbUserDetailsService;
++import io.jsonwebtoken.Claims;
++import io.jsonwebtoken.Jwts;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.http.HttpHeaders;
+ import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+ import org.springframework.security.core.Authentication;
+-import org.springframework.security.core.userdetails.UserDetails;
++import org.springframework.security.core.GrantedAuthority;
++import org.springframework.security.core.authority.SimpleGrantedAuthority;
+ import org.springframework.stereotype.Component;
+ import org.springframework.web.filter.OncePerRequestFilter;
+ 
+@@ -15,26 +18,35 @@ import javax.servlet.ServletException;
+ import javax.servlet.http.HttpServletRequest;
+ import javax.servlet.http.HttpServletResponse;
+ import java.io.IOException;
++import java.util.Date;
++import java.util.List;
++import java.util.stream.Collectors;
+ 
+ @Component
+ public class TokenVerificationFilter extends OncePerRequestFilter {
+     @Autowired
+-    private DbUserDetailsService userDetailsService;
++    private AuthenticationFacade authenticationFacade;
+ 
+     @Autowired
+-    private AuthenticationFacade authenticationFacade;
++    private JWTConfig jwtConfig;
+ 
+     @Override
+     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain) throws ServletException, IOException {
+         String authorizationHeader = request.getHeader(HttpHeaders.AUTHORIZATION);
+ 
+         if (authorizationHeader != null && authorizationHeader.startsWith("Bearer ")) {
+-            String token = authorizationHeader.replace("Bearer ", "");
+-            UserDetails userDetails = userDetailsService.loadUserByToken(token);
+-
+-            if (userDetails != null) {
++            String accessToken = authorizationHeader.replace("Bearer ", "");
++            // Parse JWT using the SecretKey
++            Claims claims = Jwts.parserBuilder()
++                    .setSigningKey(jwtConfig.getSecretKey())
++                    .build()
++                    .parseClaimsJws(accessToken)
++                    .getBody();
++
++            // Check if JWT has expired
++            if (claims.getExpiration().after(new Date())) {
+                 Authentication authentication = UsernamePasswordAuthenticationToken.authenticated(
+-                        userDetails.getUsername(), null, userDetails.getAuthorities()
++                        claims.getSubject(), null, this.getAuthorities(claims)
+                 );
+                 authenticationFacade.setAuthentication(authentication);
+             }
+@@ -42,4 +54,10 @@ public class TokenVerificationFilter extends OncePerRequestFilter {
+ 
+         filterChain.doFilter(request, response);
+     }
++
++    private List<GrantedAuthority> getAuthorities(Claims claims) {
++        return ((List<String>) claims.get("authorities")).stream()
++                .map(SimpleGrantedAuthority::new)
++                .collect(Collectors.toList());
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+index a6903fc..5dd22d5 100644
+--- a/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
++++ b/src/main/java/com/facadecode/spring/security/repo/AppUserRepository.java
+@@ -4,12 +4,9 @@ import com.facadecode.spring.security.domain.AppUser;
+ import org.springframework.data.jpa.repository.JpaRepository;
+ import org.springframework.stereotype.Repository;
+ 
+-import java.util.Date;
+ import java.util.Optional;
+ 
+ @Repository
+ public interface AppUserRepository extends JpaRepository<AppUser, Long> {
+     Optional<AppUser> findByUsername(String username);
+-
+-    Optional<AppUser> findByTokenAndTokenExpiryTimeGreaterThan(String token, Date currentDate);
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+index 0e7ebfc..7cf1055 100644
+--- a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
++++ b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+@@ -54,8 +54,4 @@ public class AuthenticationService {
+ 
+         return accessToken;
+     }
+-
+-    public void invalidateToken() {
+-        userService.deleteToken(authenticationFacade.getAuthentication().getName());
+-    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+index e2e4655..f2f0eea 100644
+--- a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
++++ b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+@@ -4,14 +4,12 @@ import com.facadecode.spring.security.domain.AppRole;
+ import com.facadecode.spring.security.domain.AppUser;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import org.springframework.beans.factory.annotation.Autowired;
+-import org.springframework.security.authentication.BadCredentialsException;
+ import org.springframework.security.core.userdetails.User;
+ import org.springframework.security.core.userdetails.UserDetails;
+ import org.springframework.security.core.userdetails.UserDetailsService;
+ import org.springframework.security.core.userdetails.UsernameNotFoundException;
+ import org.springframework.stereotype.Service;
+ 
+-import java.util.Date;
+ import java.util.Set;
+ import java.util.stream.Collectors;
+ 
+@@ -39,15 +37,4 @@ public class DbUserDetailsService implements UserDetailsService {
+                 .collect(Collectors.toSet())
+                 .toArray(new String[0]);
+     }
+-
+-    public UserDetails loadUserByToken(String token) throws UsernameNotFoundException {
+-        AppUser appUser = appUserRepository.findByTokenAndTokenExpiryTimeGreaterThan(token, new Date())
+-                .orElseThrow(() -> new BadCredentialsException("Provided token is either expired or not found"));
+-
+-        return User.builder()
+-                .username(appUser.getUsername())
+-                .password(appUser.getPassword())
+-                .authorities(this.getPermissions(appUser.getRoles()))
+-                .build();
+-    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index df2cf96..87eb950 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -56,12 +56,4 @@ public class UserService {
+         return appUserRepository.findByUsername(username)
+                 .orElseThrow(() -> new RuntimeException(String.format("User with username %s not found", username)));
+     }
+-
+-    @PreAuthorize(Authority.DELETE_TOKEN)
+-    public void deleteToken(String username) {
+-        AppUser appUser = this.get(username);
+-        appUser.setToken(null);
+-        appUser.setTokenExpiryTime(null);
+-        appUserRepository.save(appUser);
+-    }
+ }

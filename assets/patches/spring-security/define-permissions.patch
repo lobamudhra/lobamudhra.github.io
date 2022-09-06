@@ -1,0 +1,255 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index 4b48a30..6296bf3 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -6,6 +6,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.web.SecurityFilterChain;
+ 
+ import static com.facadecode.spring.security.constant.SecurityConstants.*;
++import static com.facadecode.spring.security.enums.PermissionEnum.*;
+ import static com.facadecode.spring.security.enums.RoleEnum.ADMIN;
+ import static com.facadecode.spring.security.enums.RoleEnum.INSTRUCTOR;
+ import static org.springframework.http.HttpMethod.GET;
+@@ -19,8 +20,13 @@ public class ApiSecurityConfig {
+                 .csrf().disable()
+                 .authorizeRequests(auth -> auth
+                         .antMatchers(GET, PUBLIC_API_LIST).permitAll()
++                        // Role based access restrictions
+                         .antMatchers(API_LIST_STUDENTS, API_LIST_INSTRUCTORS).hasRole(ADMIN.name())
+                         .antMatchers(POST, API_CREATE_COURSES).hasRole(INSTRUCTOR.name())
++                        // Permission based access restrictions
++                        .antMatchers(API_UPDATE_COURSES).hasAuthority(UPDATE_COURSE.name())
++                        .antMatchers(API_PLAY_COURSE).hasAuthority(PLAY_COURSE.name())
++                        .antMatchers(API_VIEW_PROFILE).hasAuthority(VIEW_PROFILE.name())
+                         .anyRequest().authenticated()
+                 )
+                 .httpBasic();
+diff --git a/src/main/java/com/facadecode/spring/security/config/AppDataInitialiser.java b/src/main/java/com/facadecode/spring/security/config/AppDataInitialiser.java
+index 02bc058..e76e51b 100644
+--- a/src/main/java/com/facadecode/spring/security/config/AppDataInitialiser.java
++++ b/src/main/java/com/facadecode/spring/security/config/AppDataInitialiser.java
+@@ -1,9 +1,10 @@
+ package com.facadecode.spring.security.config;
+ 
++import com.facadecode.spring.security.domain.AppPermission;
+ import com.facadecode.spring.security.domain.AppRole;
+ import com.facadecode.spring.security.domain.AppUser;
+ import com.facadecode.spring.security.domain.Course;
+-import com.facadecode.spring.security.enums.RoleEnum;
++import com.facadecode.spring.security.repo.AppPermissionRepository;
+ import com.facadecode.spring.security.repo.AppRoleRepository;
+ import com.facadecode.spring.security.repo.AppUserRepository;
+ import com.facadecode.spring.security.repo.CourseRepository;
+@@ -18,9 +19,15 @@ import java.util.Collections;
+ import java.util.stream.Collectors;
+ import java.util.stream.Stream;
+ 
++import static com.facadecode.spring.security.enums.PermissionEnum.*;
++import static com.facadecode.spring.security.enums.RoleEnum.*;
++
+ @Slf4j
+ @Component
+ public class AppDataInitialiser implements ApplicationRunner {
++    @Autowired
++    private AppPermissionRepository appPermissionRepository;
++
+     @Autowired
+     private AppRoleRepository appRoleRepository;
+ 
+@@ -37,7 +44,8 @@ public class AppDataInitialiser implements ApplicationRunner {
+     public void run(ApplicationArguments args) {
+         this.clearAppData();
+ 
+-        AppRole[] roles = this.createRoles();
++        AppPermission[] permissions = this.createPermissions();
++        AppRole[] roles = this.createRoles(permissions);
+         AppUser[] instructors = this.createInstructors(roles[1]);
+         Course[] courses = this.createCourses(instructors);
+         AppUser[] students = this.createStudents(roles[0], courses);
+@@ -47,17 +55,69 @@ public class AppDataInitialiser implements ApplicationRunner {
+     private void clearAppData() {
+         appUserRepository.deleteAll();
+         appRoleRepository.deleteAll();
++        appPermissionRepository.deleteAll();
+         courseRepository.deleteAll();
+     }
+ 
+-    private AppRole[] createRoles() {
+-        AppRole studentRole = AppRole.builder().name(RoleEnum.STUDENT).build();
++    private AppPermission[] createPermissions() {
++        AppPermission createCoursePermission = AppPermission.builder().name(CREATE_COURSE).build();
++        appPermissionRepository.save(createCoursePermission);
++
++        AppPermission updateCoursePermission = AppPermission.builder().name(UPDATE_COURSE).build();
++        appPermissionRepository.save(updateCoursePermission);
++
++        AppPermission playCoursePermission = AppPermission.builder().name(PLAY_COURSE).build();
++        appPermissionRepository.save(playCoursePermission);
++
++        AppPermission listStudentsPermission = AppPermission.builder().name(LIST_STUDENTS).build();
++        appPermissionRepository.save(listStudentsPermission);
++
++        AppPermission listInstructorsPermission = AppPermission.builder().name(LIST_INSTRUCTORS).build();
++        appPermissionRepository.save(listInstructorsPermission);
++
++        AppPermission viewProfilePermission = AppPermission.builder().name(VIEW_PROFILE).build();
++        appPermissionRepository.save(viewProfilePermission);
++
++        return new AppPermission[] {
++                createCoursePermission,
++                updateCoursePermission,
++                playCoursePermission,
++                listStudentsPermission,
++                listInstructorsPermission,
++                viewProfilePermission
++        };
++    }
++
++    private AppRole[] createRoles(AppPermission[] permissions) {
++        AppPermission createCoursePermission = permissions[0];
++        AppPermission updateCoursePermission = permissions[1];
++        AppPermission playCoursePermission = permissions[2];
++        AppPermission listStudentsPermission = permissions[3];
++        AppPermission listInstructorsPermission = permissions[4];
++        AppPermission viewProfilePermission = permissions[5];
++
++        AppRole studentRole = AppRole.builder()
++                .name(STUDENT)
++                .permissions(
++                        Stream.of(playCoursePermission, viewProfilePermission).collect(Collectors.toSet())
++                )
++                .build();
+         appRoleRepository.save(studentRole);
+ 
+-        AppRole instructorRole = AppRole.builder().name(RoleEnum.INSTRUCTOR).build();
++        AppRole instructorRole = AppRole.builder()
++                .name(INSTRUCTOR)
++                .permissions(
++                        Stream.of(createCoursePermission, updateCoursePermission, playCoursePermission, viewProfilePermission).collect(Collectors.toSet())
++                )
++                .build();
+         appRoleRepository.save(instructorRole);
+ 
+-        AppRole adminRole = AppRole.builder().name(RoleEnum.ADMIN).build();
++        AppRole adminRole = AppRole.builder()
++                .name(ADMIN)
++                .permissions(
++                        Stream.of(listStudentsPermission, listInstructorsPermission, viewProfilePermission).collect(Collectors.toSet())
++                )
++                .build();
+         appRoleRepository.save(adminRole);
+ 
+         return new AppRole[] { studentRole, instructorRole, adminRole};
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index f87e725..cae7dde 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -3,12 +3,15 @@ package com.facadecode.spring.security.constant;
+ public class SecurityConstants {
+     /* Course API URLs */
+     public static final String API_CREATE_COURSES = "/api/v1/courses";
++    public static final String API_UPDATE_COURSES = "/api/v1/courses/*";
+     public static final String API_LIST_COURSES = "/api/v1/courses";
+     public static final String API_GET_COURSE = "/api/v1/courses/*";
++    public static final String API_PLAY_COURSE = "/api/v1/courses/play/*";
+ 
+     /* User API URLs */
+     public static final String API_LIST_STUDENTS = "/api/v1/users/students";
+     public static final String API_LIST_INSTRUCTORS = "/api/v1/users/instructors";
++    public static final String API_VIEW_PROFILE = "/api/v1/users/*";
+ 
+     public static final String[] PUBLIC_API_LIST = new String[] {
+             API_LIST_COURSES,
+diff --git a/src/main/java/com/facadecode/spring/security/domain/AppPermission.java b/src/main/java/com/facadecode/spring/security/domain/AppPermission.java
+new file mode 100644
+index 0000000..338f4bf
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/domain/AppPermission.java
+@@ -0,0 +1,27 @@
++package com.facadecode.spring.security.domain;
++
++import com.fasterxml.jackson.annotation.JsonIgnore;
++import com.facadecode.spring.security.enums.PermissionEnum;
++import lombok.*;
++
++import javax.persistence.*;
++import java.util.Set;
++
++@Entity(name = "app_permission")
++@Data
++@Builder
++@NoArgsConstructor
++@AllArgsConstructor
++@EqualsAndHashCode(of = "id")
++public class AppPermission {
++    @Id
++    @GeneratedValue(strategy = GenerationType.IDENTITY)
++    private Long id;
++
++    @Enumerated(value = EnumType.STRING)
++    private PermissionEnum name;
++
++    @ManyToMany(fetch = FetchType.LAZY, mappedBy = "permissions")
++    @JsonIgnore
++    private Set<AppRole> assignedRoles;
++}
+diff --git a/src/main/java/com/facadecode/spring/security/domain/AppRole.java b/src/main/java/com/facadecode/spring/security/domain/AppRole.java
+index 835ff20..1e173e1 100644
+--- a/src/main/java/com/facadecode/spring/security/domain/AppRole.java
++++ b/src/main/java/com/facadecode/spring/security/domain/AppRole.java
+@@ -1,7 +1,7 @@
+ package com.facadecode.spring.security.domain;
+ 
+-import com.facadecode.spring.security.enums.RoleEnum;
+ import com.fasterxml.jackson.annotation.JsonIgnore;
++import com.facadecode.spring.security.enums.RoleEnum;
+ import lombok.*;
+ 
+ import javax.persistence.*;
+@@ -24,4 +24,12 @@ public class AppRole {
+     @ManyToMany(fetch = FetchType.LAZY, mappedBy = "roles")
+     @JsonIgnore
+     private Set<AppUser> users;
++
++    @ManyToMany(fetch = FetchType.EAGER)
++    @JoinTable(
++            name = "app_role_to_permission",
++            joinColumns = @JoinColumn(name = "app_role_id"),
++            inverseJoinColumns = @JoinColumn(name = "app_permission_id")
++    )
++    private Set<AppPermission> permissions;
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/enums/PermissionEnum.java b/src/main/java/com/facadecode/spring/security/enums/PermissionEnum.java
+new file mode 100644
+index 0000000..313eaa6
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/enums/PermissionEnum.java
+@@ -0,0 +1,13 @@
++package com.facadecode.spring.security.enums;
++
++public enum PermissionEnum {
++    /* Course Permissions */
++    CREATE_COURSE,
++    UPDATE_COURSE,
++    PLAY_COURSE,
++
++    /* User Permissions */
++    LIST_STUDENTS,
++    LIST_INSTRUCTORS,
++    VIEW_PROFILE
++}
+diff --git a/src/main/java/com/facadecode/spring/security/repo/AppPermissionRepository.java b/src/main/java/com/facadecode/spring/security/repo/AppPermissionRepository.java
+new file mode 100644
+index 0000000..77fdeec
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/repo/AppPermissionRepository.java
+@@ -0,0 +1,9 @@
++package com.facadecode.spring.security.repo;
++
++import com.facadecode.spring.security.domain.AppPermission;
++import org.springframework.data.jpa.repository.JpaRepository;
++import org.springframework.stereotype.Repository;
++
++@Repository
++public interface AppPermissionRepository extends JpaRepository<AppPermission, Long> {
++}

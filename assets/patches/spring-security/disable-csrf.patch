@@ -1,0 +1,28 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index 885e445..4b48a30 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -16,6 +16,7 @@ public class ApiSecurityConfig {
+     @Bean
+     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+         http
++                .csrf().disable()
+                 .authorizeRequests(auth -> auth
+                         .antMatchers(GET, PUBLIC_API_LIST).permitAll()
+                         .antMatchers(API_LIST_STUDENTS, API_LIST_INSTRUCTORS).hasRole(ADMIN.name())
+diff --git a/src/main/resources/application.properties b/src/main/resources/application.properties
+index d8722e1..19d386b 100644
+--- a/src/main/resources/application.properties
++++ b/src/main/resources/application.properties
+@@ -6,4 +6,8 @@ spring.datasource.driverClassName=com.mysql.cj.jdbc.Driver
+ 
+ # JPA Hibernate Properties
+ spring.jpa.hibernate.dialect=org.hibernate.dialect.MySQL5Dialect
+-spring.jpa.hibernate.ddl-auto=update
+\ No newline at end of file
++spring.jpa.hibernate.ddl-auto=update
++
++# Logging properties
++logging.level.com.facadecode.spring.security=DEBUG
++logging.level.org.springframework.security=DEBUG
+\ No newline at end of file

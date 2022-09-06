@@ -1,0 +1,69 @@
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index c875b3e..d69a680 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -15,6 +15,7 @@ public class SecurityConstants {
+         public static final String LIST_INSTRUCTORS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_INSTRUCTORS.name())";
+         public static final String VIEW_PROFILE = "hasPermission(returnObject, T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
+         public static final String UPDATE_TOKEN = "#username == authentication.name";
++        public static final String DELETE_TOKEN = "#username == authentication.name";
+         public static final String CREATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).CREATE_COURSE.name())";
+         public static final String UPDATE_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
+         public static final String PLAY_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).PLAY_COURSE.name())";
+diff --git a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+index da34b9e..6b01164 100644
+--- a/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
++++ b/src/main/java/com/facadecode/spring/security/controller/AuthenticationController.java
+@@ -3,10 +3,7 @@ package com.facadecode.spring.security.controller;
+ import com.facadecode.spring.security.service.AuthenticationService;
+ import org.springframework.beans.factory.annotation.Autowired;
+ import org.springframework.http.ResponseEntity;
+-import org.springframework.web.bind.annotation.PostMapping;
+-import org.springframework.web.bind.annotation.RequestMapping;
+-import org.springframework.web.bind.annotation.RequestParam;
+-import org.springframework.web.bind.annotation.RestController;
++import org.springframework.web.bind.annotation.*;
+ 
+ import java.util.Collections;
+ import java.util.Map;
+@@ -26,4 +23,10 @@ public class AuthenticationController {
+         Map<String, String> tokenResponse = Collections.singletonMap("token", token);
+         return ResponseEntity.ok(tokenResponse);
+     }
++
++    @DeleteMapping("token")
++    public ResponseEntity invalidateToken() {
++        authenticationService.invalidateToken();
++        return ResponseEntity.noContent().build();
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+index b158aec..ec6e0f6 100644
+--- a/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
++++ b/src/main/java/com/facadecode/spring/security/service/AuthenticationService.java
+@@ -43,4 +43,8 @@ public class AuthenticationService {
+         calendar.add(Calendar.MINUTE, 30);
+         return calendar.getTime();
+     }
++
++    public void invalidateToken() {
++        userService.deleteToken(authenticationFacade.getAuthentication().getName());
++    }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index 0339a86..1f7b143 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -65,4 +65,12 @@ public class UserService {
+         appUser.setTokenExpiryTime(tokenExpiryTime);
+         appUserRepository.save(appUser);
+     }
++
++    @PreAuthorize(Authority.DELETE_TOKEN)
++    public void deleteToken(String username) {
++        AppUser appUser = this.get(username);
++        appUser.setToken(null);
++        appUser.setTokenExpiryTime(null);
++        appUserRepository.save(appUser);
++    }
+ }

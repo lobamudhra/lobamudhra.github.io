@@ -1,0 +1,60 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/SecurityBean.java b/src/main/java/com/facadecode/spring/security/config/SecurityBean.java
+new file mode 100644
+index 0000000..158a00c
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/config/SecurityBean.java
+@@ -0,0 +1,19 @@
++package com.facadecode.spring.security.config;
++
++import com.facadecode.spring.security.service.DbUserDetailsService;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.context.annotation.Bean;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.security.core.userdetails.UserDetailsService;
++import org.springframework.security.provisioning.InMemoryUserDetailsManager;
++
++@Configuration
++public class SecurityBean {
++    @Autowired
++    private DbUserDetailsService dbUserDetailsService;
++
++    @Bean
++    public UserDetailsService userDetailsService() {
++        return new InMemoryUserDetailsManager(dbUserDetailsService.getAllUserDetails());
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+new file mode 100644
+index 0000000..731e5eb
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/service/DbUserDetailsService.java
+@@ -0,0 +1,29 @@
++package com.facadecode.spring.security.service;
++
++import com.facadecode.spring.security.repo.AppUserRepository;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.security.core.userdetails.User;
++import org.springframework.security.core.userdetails.UserDetails;
++import org.springframework.stereotype.Service;
++
++import java.util.Collections;
++import java.util.List;
++import java.util.stream.Collectors;
++
++@Service
++public class DbUserDetailsService {
++    @Autowired
++    private AppUserRepository appUserRepository;
++
++    public List<UserDetails> getAllUserDetails() {
++        return appUserRepository.findAll()
++                .stream()
++                .map(appUser -> User.builder()
++                        .username(appUser.getUsername())
++                        .password(String.format("{noop}%s", appUser.getPassword()))
++                        .authorities(Collections.EMPTY_SET)
++                        .build()
++                )
++                .collect(Collectors.toList());
++    }
++}

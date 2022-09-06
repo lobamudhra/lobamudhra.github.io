@@ -1,0 +1,258 @@
+diff --git a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+index 1b78df6..d7b933b 100644
+--- a/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
++++ b/src/main/java/com/facadecode/spring/security/config/ApiSecurityConfig.java
+@@ -2,7 +2,6 @@ package com.facadecode.spring.security.config;
+ 
+ import org.springframework.context.annotation.Bean;
+ import org.springframework.context.annotation.Configuration;
+-import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
+ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+ import org.springframework.security.web.SecurityFilterChain;
+ 
+@@ -10,7 +9,6 @@ import static com.facadecode.spring.security.constant.SecurityConstants.PUBLIC_A
+ import static org.springframework.http.HttpMethod.GET;
+ 
+ @Configuration
+-@EnableGlobalMethodSecurity(prePostEnabled = true)
+ public class ApiSecurityConfig {
+     @Bean
+     public SecurityFilterChain apiFilterChain(HttpSecurity http) throws Exception {
+diff --git a/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java b/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java
+new file mode 100644
+index 0000000..9e61f31
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/config/SecurityConfig.java
+@@ -0,0 +1,24 @@
++package com.facadecode.spring.security.config;
++
++import com.facadecode.spring.security.security.CoursePermissionEvaluator;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.context.annotation.Configuration;
++import org.springframework.security.access.expression.method.DefaultMethodSecurityExpressionHandler;
++import org.springframework.security.access.expression.method.MethodSecurityExpressionHandler;
++import org.springframework.security.config.annotation.method.configuration.EnableGlobalMethodSecurity;
++import org.springframework.security.config.annotation.method.configuration.GlobalMethodSecurityConfiguration;
++
++@Configuration
++@EnableGlobalMethodSecurity(prePostEnabled = true)
++public class SecurityConfig extends GlobalMethodSecurityConfiguration {
++    @Autowired
++    private CoursePermissionEvaluator coursePermissionEvaluator;
++
++    @Override
++    protected MethodSecurityExpressionHandler createExpressionHandler() {
++        DefaultMethodSecurityExpressionHandler defaultMethodSecurityExpressionHandler
++                = new DefaultMethodSecurityExpressionHandler();
++        defaultMethodSecurityExpressionHandler.setPermissionEvaluator(coursePermissionEvaluator);
++        return defaultMethodSecurityExpressionHandler;
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+index 0042488..6dc90f6 100644
+--- a/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
++++ b/src/main/java/com/facadecode/spring/security/constant/SecurityConstants.java
+@@ -12,10 +12,10 @@ public class SecurityConstants {
+     public static class Authority {
+         public static final String LIST_STUDENTS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_STUDENTS.name())";
+         public static final String LIST_INSTRUCTORS = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).LIST_INSTRUCTORS.name())";
+-        public static final String VIEW_PROFILE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
++        public static final String VIEW_PROFILE = "hasPermission(returnObject, T(com.facadecode.spring.security.enums.PermissionEnum).VIEW_PROFILE.name())";
+         public static final String CREATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).CREATE_COURSE.name())";
+-        public static final String UPDATE_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
+-        public static final String PLAY_COURSE = "hasAuthority(T(com.facadecode.spring.security.enums.PermissionEnum).PLAY_COURSE.name())";
++        public static final String UPDATE_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).UPDATE_COURSE.name())";
++        public static final String PLAY_COURSE = "hasPermission(#courseId, T(com.facadecode.spring.security.domain.Course).getSimpleName(), T(com.facadecode.spring.security.enums.PermissionEnum).PLAY_COURSE.name())";
+ 
+     }
+ }
+diff --git a/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java b/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java
+new file mode 100644
+index 0000000..c2dedc6
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/security/AppUserPermissionEvaluator.java
+@@ -0,0 +1,62 @@
++package com.facadecode.spring.security.security;
++
++import com.facadecode.spring.security.domain.AppUser;
++import com.facadecode.spring.security.enums.PermissionEnum;
++import com.facadecode.spring.security.repo.AppUserRepository;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.security.access.PermissionEvaluator;
++import org.springframework.security.core.Authentication;
++import org.springframework.stereotype.Component;
++
++import java.io.Serializable;
++import java.util.Optional;
++
++import static com.facadecode.spring.security.enums.RoleEnum.INSTRUCTOR;
++
++@Component
++public class AppUserPermissionEvaluator implements PermissionEvaluator {
++    @Autowired
++    private AppUserRepository appUserRepository;
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Object targetDomainObject, Object permission) {
++        if (targetDomainObject != null) {
++            AppUser appUser = (AppUser) targetDomainObject;
++            PermissionEnum permissionEnum = PermissionEnum.valueOf((String) permission);
++
++            switch(permissionEnum) {
++                case VIEW_PROFILE:
++                    return this.isInstructor(appUser) || this.isSame(authentication, appUser);
++                default:
++                    return false;
++            }
++        }
++        return false;
++    }
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Serializable targetId, String targetType, Object permission) {
++        if (targetId != null) {
++            Long appUserId = (Long) targetId;
++            Optional<AppUser> appUser = appUserRepository.findById(appUserId);
++            if (appUser.isPresent()) {
++                return this.hasPermission(authentication, appUser.get(), permission);
++            }
++        }
++        return false;
++    }
++
++    // Check if the requested appuser object have instructor role.
++    public boolean isInstructor(AppUser appuser) {
++        return appuser.getRoles()
++                .stream()
++                .anyMatch(appRole ->
++                        appRole.getName().equals(INSTRUCTOR)
++                );
++    }
++
++    // Check if the requested appuser object is same as authenticated user
++    public boolean isSame(Authentication authentication, AppUser appuser) {
++        return authentication.getName().equalsIgnoreCase(appuser.getUsername());
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java b/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java
+new file mode 100644
+index 0000000..733f976
+--- /dev/null
++++ b/src/main/java/com/facadecode/spring/security/security/CoursePermissionEvaluator.java
+@@ -0,0 +1,71 @@
++package com.facadecode.spring.security.security;
++
++import com.facadecode.spring.security.domain.AppUser;
++import com.facadecode.spring.security.domain.Course;
++import com.facadecode.spring.security.enums.PermissionEnum;
++import com.facadecode.spring.security.repo.AppUserRepository;
++import com.facadecode.spring.security.repo.CourseRepository;
++import org.springframework.beans.factory.annotation.Autowired;
++import org.springframework.security.access.PermissionEvaluator;
++import org.springframework.security.core.Authentication;
++import org.springframework.stereotype.Component;
++
++import java.io.Serializable;
++import java.util.Optional;
++
++@Component
++public class CoursePermissionEvaluator implements PermissionEvaluator {
++    @Autowired
++    private CourseRepository courseRepository;
++
++    @Autowired
++    private AppUserRepository appUserRepository;
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Object targetDomainObject, Object permission) {
++        if (targetDomainObject != null) {
++            Course course = (Course) targetDomainObject;
++            PermissionEnum permissionEnum = PermissionEnum.valueOf((String) permission);
++
++            switch(permissionEnum) {
++                case UPDATE_COURSE:
++                    return this.isCreatedBy(authentication, course);
++                case PLAY_COURSE:
++                    return this.isEnrolledStudent(authentication, course.getId()) ||
++                            this.isCreatedBy(authentication, course);
++                default:
++                    return false;
++            }
++        }
++        return false;
++    }
++
++    @Override
++    public boolean hasPermission(Authentication authentication, Serializable targetId, String targetType, Object permission) {
++        if (targetId != null) {
++            Long courseId = (Long) targetId;
++            Optional<Course> course = courseRepository.findById(courseId);
++            if (course.isPresent()) {
++                return this.hasPermission(authentication, course.get(), permission);
++            }
++        }
++        return false;
++    }
++
++    // Check if the course is created by the authenticated user
++    private boolean isCreatedBy(Authentication authentication, Course course) {
++        return course.getCreatedBy().getUsername().equalsIgnoreCase(authentication.getName());
++    }
++
++    // Check if the course is enrolled by the authenticated user
++    private boolean isEnrolledStudent(Authentication authentication, Long courseId) {
++        Optional<AppUser> student = appUserRepository.findByUsername(authentication.getName());
++        if (student.isPresent()) {
++            return student.get()
++                    .getEnrolledCourses()
++                    .stream()
++                    .anyMatch(course -> course.getId().equals(courseId));
++        }
++        return false;
++    }
++}
+diff --git a/src/main/java/com/facadecode/spring/security/security/ServiceSecurity.java b/src/main/java/com/facadecode/spring/security/security/ServiceSecurity.java
+deleted file mode 100644
+index 3bf2b62..0000000
+--- a/src/main/java/com/facadecode/spring/security/security/ServiceSecurity.java
++++ /dev/null
+@@ -1,17 +0,0 @@
+-package com.facadecode.spring.security.security;
+-
+-import com.facadecode.spring.security.domain.AppUser;
+-import org.springframework.stereotype.Component;
+-
+-import static com.facadecode.spring.security.enums.RoleEnum.INSTRUCTOR;
+-
+-@Component("serviceSecurity")
+-public class ServiceSecurity {
+-    public Boolean isInstructor(AppUser appuser) {
+-        return appuser.getRoles()
+-                .stream()
+-                .anyMatch(appRole ->
+-                        appRole.getName().equals(INSTRUCTOR)
+-                );
+-    }
+-}
+diff --git a/src/main/java/com/facadecode/spring/security/service/UserService.java b/src/main/java/com/facadecode/spring/security/service/UserService.java
+index 2d52ad4..87eb950 100644
+--- a/src/main/java/com/facadecode/spring/security/service/UserService.java
++++ b/src/main/java/com/facadecode/spring/security/service/UserService.java
+@@ -45,15 +45,13 @@ public class UserService {
+                 .collect(Collectors.toList());
+     }
+ 
+-    @PreAuthorize(Authority.VIEW_PROFILE)
+-    @PostAuthorize("@serviceSecurity.isInstructor(returnObject) or returnObject.username == authentication.name")
++    @PostAuthorize(Authority.VIEW_PROFILE)
+     public AppUser get(Long userId) {
+         return appUserRepository.findById(userId)
+                 .orElseThrow(() -> new RuntimeException(String.format("User with id %s not found", userId)));
+     }
+ 
+-    @PreAuthorize(Authority.VIEW_PROFILE)
+-    @PostAuthorize("@serviceSecurity.isInstructor(returnObject) or returnObject.username == authentication.name")
++    @PostAuthorize(Authority.VIEW_PROFILE)
+     public AppUser get(String username) {
+         return appUserRepository.findByUsername(username)
+                 .orElseThrow(() -> new RuntimeException(String.format("User with username %s not found", username)));
